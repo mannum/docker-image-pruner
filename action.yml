@@ -1,0 +1,5 @@
+name: "Docker Hub Image Pruner"
+description: "Prune old images from Docker Hub"
+runs:
+  using: "docker"
+  image: "Dockerfile"

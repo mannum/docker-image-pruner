@@ -27,6 +27,7 @@ class Cli{
             ->opt('namespace', 'Name space')
             ->opt('repository', 'Repo')
             ->opt('dry-run', 'Do not actually prune things')
+            ->opt('debug', "Enable debugging output")
         ;
 
         $this->args = $this->cli->parse($environment['argv'], true);
@@ -49,11 +50,12 @@ class Cli{
             }
             (new DockerHubPruner(
                 $this->logger,
+                $this->args->hasOpt('debug'),
+                $this->args->hasOpt('dry-run'),
                 $this->args->getOpt('username'),
                 $this->args->getOpt('pat'),
                 $this->args->getOpt('namespace'),
                 $this->args->getOpt('repository'),
-                $this->args->hasOpt('dry-run'),
             ))->run();
         }else{
             $this->logger->critical("You must either provide docker_hub_token or github_token.");

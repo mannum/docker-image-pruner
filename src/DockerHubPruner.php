@@ -18,11 +18,12 @@ class DockerHubPruner extends Pruner{
     protected Carbon $timeInPast;
     public function __construct(
         Logger $logger,
+        protected bool $debug,
+        protected bool $dryRun,
         string $username,
         string $patORPassword,
         string $namespace,
         string $repository,
-        protected bool $dryRun
     )
     {
         parent::__construct($logger);
@@ -184,7 +185,8 @@ class DockerHubPruner extends Pruner{
             }elseif(property_exists($result->images[0],'digest')){
                 $digest = $result->images['0']->digest;
             }else{
-                \Kint::dump($result);
+                if($this->debug)
+                    \Kint::dump($result);
                 $this->getLogger()->critical(sprintf("Missing digest: %s", $result->name));
                 exit(1);
                 continue;
@@ -206,16 +208,19 @@ class DockerHubPruner extends Pruner{
         $deleteable = [];
         foreach($imageTags as $imageTag){
             $canBeDeleted = $imageTag->getLastUpdated()->lessThan($this->timeInPast);
-            $this->getLogger()->debug(sprintf(
-                "Image %s is from %s and %s be deleted",
-                $imageTag->getFullName(),
-                (new TimeAgo())->inWords($imageTag->getLastUpdated()),
-                $canBeDeleted ? "will" : "will NOT",
-            ));
+            if($canBeDeleted) {
+                $this->getLogger()->info(sprintf(
+                    "Image %s is from %s and %s be deleted",
+                    $imageTag->getFullName(),
+                    (new TimeAgo())->inWords($imageTag->getLastUpdated()),
+                    $canBeDeleted ? "will" : "will NOT",
+                ));
+            }
             if($canBeDeleted){
                 $deleteable[$imageTag->getDigest()][] = $imageTag;
             }
         }
+
         $this->getLogger()->debug(sprintf("Found %d imagetags to delete", count($deleteable)));
         ksort($deleteable);
         return $deleteable;
@@ -277,12 +282,12 @@ class DockerHubPruner extends Pruner{
                 $rateLimitRemaining = $deleteResponse->getHeader('x-ratelimit-remaining')[0];
                 $deleteResponse = json_decode($deleteResponse->getBody()->getContents(), true);
 
-                $this->getLogger()->debug(sprintf("> Removed %d tags, %d requests remaining before hitting rate limit", $deleteResponse['metrics']['tag_deletes'], $rateLimitRemaining));
+                $this->getLogger()->debug(sprintf("> Removed %d tags, (request limit remaining: %d)", $deleteResponse['metrics']['tag_deletes'], $rateLimitRemaining));
 
             } catch (ClientException $exception) {
                 $exceptionResponse = json_decode($exception->getResponse()->getBody()->getContents(),true);
-                \Kint::dump($deleteRequest, $exceptionResponse);
-                $this->getLogger()->critical(sprintf("> Failed to remove tags: %s",$exceptionResponse['message']));
+                if($this->debug) \Kint::dump($deleteRequest, $exceptionResponse);
+                $this->getLogger()->warning(sprintf("> Failed to remove tags: %s",$exceptionResponse['message']));
             }
         }
     }
