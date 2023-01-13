@@ -229,12 +229,11 @@ class DockerHubPruner extends Pruner{
     }
 
     /**
-     * @return int
+     * @return void
      * @throws \GuzzleHttp\Exception\GuzzleException
      */
-    protected function deleteImageTags(array $imageTags) : int
+    protected function deleteImageTags(array $imageTags) : void
     {
-        $deletedCount = 0;
         foreach($imageTags as $digest => $imageTagGroup) {
             $deleteRequest = [
                 'dry_run' => $this->dryRun,
@@ -286,7 +285,6 @@ class DockerHubPruner extends Pruner{
                 $deleteResponse = json_decode($deleteResponse->getBody()->getContents(), true);
 
                 $this->getLogger()->debug(sprintf("> Removed %d tags, (request limit remaining: %d)", $deleteResponse['metrics']['tag_deletes'], $rateLimitRemaining));
-                $deletedCount = $deletedCount + $deleteResponse['metrics']['tag_deletes'];
 
             } catch (ClientException $exception) {
                 $exceptionResponse = json_decode($exception->getResponse()->getBody()->getContents(),true);
@@ -302,13 +300,12 @@ class DockerHubPruner extends Pruner{
                 }
             }
         }
-        return $deletedCount;
     }
     public function run(){
         $this->login();
         $imageTags = $this->listImages();
         $deletableImageTags = $this->combImagesForDeletion($imageTags);
-        $numberActuallyDeleted = $this->deleteImagetags($deletableImageTags);
-        $this->getLogger()->info(sprintf("Found %d images, %d of which are deletable and %d were deleted", count($imageTags), count($deletableImageTags), $numberActuallyDeleted));
+        $this->deleteImagetags($deletableImageTags);
+        $this->getLogger()->info(sprintf("Found %d images, %d of which are deletable and %d were deleted", count($imageTags), count($deletableImageTags)));
     }
 }
