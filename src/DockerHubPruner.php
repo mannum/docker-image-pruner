@@ -3,17 +3,27 @@ namespace DockerImagePruner;
 
 use Carbon\Carbon;
 use GuzzleHttp\Client as Guzzle ;
+use GuzzleHttp\Exception\ClientException;
 use Monolog\Logger;
 use Westsworld\TimeAgo;
 
 class DockerHubPruner extends Pruner{
-
+    const MAX_IMAGES_PER_CHUNK=25;
     protected string $username;
     protected string $patORPassword;
     protected string $namespace;
     protected string $repository;
     protected string $token;
-    public function __construct(Logger $logger, string $username, string $patORPassword, string $namespace, string $repository)
+
+    protected Carbon $timeInPast;
+    public function __construct(
+        Logger $logger,
+        string $username,
+        string $patORPassword,
+        string $namespace,
+        string $repository,
+        protected bool $dryRun
+    )
     {
         parent::__construct($logger);
         $this->setGuzzle(new Guzzle([
@@ -25,6 +35,9 @@ class DockerHubPruner extends Pruner{
             ->setPatORPassword($patORPassword)
             ->setNamespace($namespace)
             ->setRepository($repository);
+
+        $this->timeInPast = Carbon::now()->subMonth();
+
     }
 
     /**
@@ -165,40 +178,118 @@ class DockerHubPruner extends Pruner{
         $imageTags = [];
         foreach($allResults as $result){
             //\Kint::dump($result->digest);exit;
+
+            if(property_exists($result, 'digest')) {
+                $digest = $result->digest;
+            }elseif(property_exists($result->images[0],'digest')){
+                $digest = $result->images['0']->digest;
+            }else{
+                \Kint::dump($result);
+                $this->getLogger()->critical(sprintf("Missing digest: %s", $result->name));
+                exit(1);
+                continue;
+            }
             $imageTags[] = (new ImageTag())
                 ->setName(sprintf("%s/%s",$this->getNamespace(), $this->getRepository()))
                 ->setTag($result->name)
-                ->setDigest($result->digest ?? null)
+                ->setDigest($digest)
                 ->setLastUpdated(Carbon::parse($result->last_updated));
-            //\Kint::dump($result, $imageTags[0]);
         }
         return $imageTags;
     }
 
     /**
      * @param ImageTag[] $imageTags
-     * @return ImageTag[]
+     * @return array
      */
     protected function combImagesForDeletion(array $imageTags) : array{
         $deleteable = [];
-        $fourWeeksAgo = Carbon::now()->subWeeks(4);
         foreach($imageTags as $imageTag){
+            $canBeDeleted = $imageTag->getLastUpdated()->lessThan($this->timeInPast);
             $this->getLogger()->debug(sprintf(
-                "Image %s is %s",
+                "Image %s is from %s and %s be deleted",
                 $imageTag->getFullName(),
-                (new TimeAgo())->inWords($imageTag->getLastUpdated())
+                (new TimeAgo())->inWords($imageTag->getLastUpdated()),
+                $canBeDeleted ? "will" : "will NOT",
             ));
-            if($imageTag->getLastUpdated()->lessThan($fourWeeksAgo)){
-                $deleteable[] = $imageTag;
+            if($canBeDeleted){
+                $deleteable[$imageTag->getDigest()][] = $imageTag;
             }
         }
         $this->getLogger()->debug(sprintf("Found %d imagetags to delete", count($deleteable)));
+        ksort($deleteable);
         return $deleteable;
+    }
+
+    /**
+     * @return void
+     * @throws \GuzzleHttp\Exception\GuzzleException
+     */
+    protected function deleteImageTags(array $imageTags)
+    {
+        foreach($imageTags as $digest => $imageTagGroup) {
+            $deleteRequest = [
+                'dry_run' => $this->dryRun,
+                'active_from' => $this->timeInPast->format("Y-m-d\TH:i:s\Z"),
+                'manifests' => array_map(function (ImageTag $imageTag) {
+                    return [
+                        'repository' => $this->getRepository(),
+                        'digest' => $imageTag->getDigest(),
+                    ];
+                }, $imageTagGroup),
+                'ignore_warnings' => [[
+                    'repository' => $this->getRepository(),
+                    'digest' => $digest,
+                    'warning' => 'current_tag',
+                    'tags' => array_map(function (ImageTag $imageTag) {
+                        return $imageTag->getTag();
+                    }, $imageTagGroup),
+                ]]
+            ];
+
+            try {
+                $deleteResponse = $this->getGuzzle()->post(
+                    sprintf(
+                        "namespaces/%s/delete-images",
+                        $this->getNamespace(),
+                    ),
+                    [
+                        'headers' => ['Authorization' => "Bearer {$this->getToken()}"],
+                        'json' => $deleteRequest
+                    ]
+                );
+
+                if($deleteResponse->getStatusCode() == 429){
+                    $this->getLogger()->debug("Run out of rate limit.. waiting until we're allowed to make more calls...");
+                    time_sleep_until($deleteResponse->getHeader('x-ratelimit-reset')[0]);
+                    // Do it again.
+                    $deleteResponse = $this->getGuzzle()->post(
+                        sprintf(
+                            "namespaces/%s/delete-images",
+                            $this->getNamespace(),
+                        ),
+                        [
+                            'headers' => ['Authorization' => "Bearer {$this->getToken()}"],
+                            'json' => $deleteRequest
+                        ]
+                    );
+                }
+                $rateLimitRemaining = $deleteResponse->getHeader('x-ratelimit-remaining')[0];
+                $deleteResponse = json_decode($deleteResponse->getBody()->getContents(), true);
+
+                $this->getLogger()->debug(sprintf("> Removed %d tags, %d requests remaining before hitting rate limit", $deleteResponse['metrics']['tag_deletes'], $rateLimitRemaining));
+
+            } catch (ClientException $exception) {
+                $exceptionResponse = json_decode($exception->getResponse()->getBody()->getContents(),true);
+                \Kint::dump($deleteRequest, $exceptionResponse);
+                $this->getLogger()->critical(sprintf("> Failed to remove tags: %s",$exceptionResponse['message']));
+            }
+        }
     }
     public function run(){
         $this->login();
         $imageTags = $this->listImages();
         $deletableImageTags = $this->combImagesForDeletion($imageTags);
-
+        $this->deleteImagetags($deletableImageTags);
     }
 }

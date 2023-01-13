@@ -52,7 +52,8 @@ class Cli{
                 $this->args->getOpt('username'),
                 $this->args->getOpt('pat'),
                 $this->args->getOpt('namespace'),
-                $this->args->getOpt('repository')
+                $this->args->getOpt('repository'),
+                $this->args->hasOpt('dry-run'),
             ))->run();
         }else{
             $this->logger->critical("You must either provide docker_hub_token or github_token.");
