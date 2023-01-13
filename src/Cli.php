@@ -39,23 +39,35 @@ class Cli{
         $this->logger->pushHandler($stdout);
 
     }
+
+    private function getEnvironment() : array {
+        $environment = array_merge($_SERVER, $_ENV);
+        ksort($environment);
+        return $environment;
+    }
+    protected function hasOption($name) : bool {
+        return isset($this->getEnvironment()[strtoupper($name)]) || $this->args->hasOpt($name);
+    }
+    protected function getOption($name){
+        return $this->getEnvironment()[strtoupper($name)] ?? $this->args->getOpt($name);
+    }
     public function run(){
-        if ($this->args->hasOpt('github')) {
+        if ($this->hasOption('github')) {
             $this->logger->info(sprintf(' %s  Running Github Pruner', Emoji::recyclingSymbol()));
-        }elseif ($this->args->hasOpt('dockerhub')) {
+        }elseif ($this->hasOption('dockerhub')) {
             $this->logger->info(sprintf(' %s  Running Docker Hub Pruner', Emoji::recyclingSymbol()));
-            if(!$this->args->hasOpt('namespace') || !$this->args->hasOpt('repository')){
+            if(!$this->hasOption('namespace') || !$this->hasOption('repository')){
                 $this->logger->critical("You must provide \"namespace\" and \"repository\" flags.");
                 exit(1);
             }
             (new DockerHubPruner(
                 $this->logger,
-                $this->args->hasOpt('debug'),
-                $this->args->hasOpt('dry-run'),
-                $this->args->getOpt('username'),
-                $this->args->getOpt('pat'),
-                $this->args->getOpt('namespace'),
-                $this->args->getOpt('repository'),
+                $this->hasOption('debug'),
+                $this->hasOption('dry-run'),
+                $this->getOption('username'),
+                $this->getOption('pat'),
+                $this->getOption('namespace'),
+                $this->getOption('repository'),
             ))->run();
         }else{
             $this->logger->critical("You must either provide docker_hub_token or github_token.");
