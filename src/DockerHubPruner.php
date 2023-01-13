@@ -306,6 +306,6 @@ class DockerHubPruner extends Pruner{
         $imageTags = $this->listImages();
         $deletableImageTags = $this->combImagesForDeletion($imageTags);
         $this->deleteImagetags($deletableImageTags);
-        $this->getLogger()->info(sprintf("Found %d images, %d of which are deletable and %d were deleted", count($imageTags), count($deletableImageTags)));
+        $this->getLogger()->info(sprintf("Found %d images, %d of which are deletable", count($imageTags), count($deletableImageTags)));
     }
 }
