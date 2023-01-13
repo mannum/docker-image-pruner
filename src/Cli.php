@@ -46,10 +46,16 @@ class Cli{
         return $environment;
     }
     protected function hasOption($name) : bool {
-        return isset($this->getEnvironment()[strtoupper($name)]) || $this->args->hasOpt($name);
+        return $this->args->hasOpt($name) || key_exists(strtoupper($name), $this->getEnvironment());
     }
-    protected function getOption($name){
-        return $this->getEnvironment()[strtoupper($name)] ?? $this->args->getOpt($name);
+    protected function getOption($name)
+    {
+        if ($this->args->hasOpt($name)) {
+            return $this->args->getOpt($name);
+        } elseif (key_exists(strtoupper($name), $this->getEnvironment())) {
+            return $this->getEnvironment()[strtoupper($name)];
+        }
+        return false;
     }
     public function run(){
         if ($this->hasOption('github')) {

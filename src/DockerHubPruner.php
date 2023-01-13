@@ -132,8 +132,10 @@ class DockerHubPruner extends Pruner{
     protected function login(){
         $this->getLogger()->debug("Logging in...");
 
+        $loginRequest = ['username' => $this->getUsername(), 'password' => $this->getPatORPassword()];
+        #if($this->debug) \Kint::dump($loginRequest);
         $loginResponse = $this->getGuzzle()->post("users/login",[
-            'json' => ['username' => $this->getUsername(), 'password' => $this->getPatORPassword()]
+            'json' => $loginRequest
         ]);
         if($loginResponse->getStatusCode()!=200){
             $this->getLogger()->emergency("Login failure");
@@ -286,8 +288,16 @@ class DockerHubPruner extends Pruner{
 
             } catch (ClientException $exception) {
                 $exceptionResponse = json_decode($exception->getResponse()->getBody()->getContents(),true);
-                if($this->debug) \Kint::dump($deleteRequest, $exceptionResponse);
-                $this->getLogger()->warning(sprintf("> Failed to remove tags: %s",$exceptionResponse['message']));
+                if(isset($exceptionResponse['errinfo']['details']['warnings'])) {
+                    foreach ($exceptionResponse['errinfo']['details']['warnings'] as $warning) {
+                        if($warning['warning'] == 'is_active'){
+                            $this->getLogger()->notice(sprintf("> Not removing %s@%s, it is still marked active by docker hub", $warning['repository'], $warning['digest']));
+                        }else{
+                            if($this->debug) \Kint::dump($deleteRequest, $exceptionResponse);
+                            $this->getLogger()->warning(sprintf("> Failed to remove tags: %s",$exceptionResponse['message']));
+                        }
+                    }
+                }
             }
         }
     }
