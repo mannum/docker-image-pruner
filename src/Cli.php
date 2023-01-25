@@ -32,7 +32,7 @@ class Cli{
 
         $this->args = $this->cli->parse($environment['argv'], true);
 
-        $this->logger = new Logger('syncer');
+        $this->logger = new Logger('pruner');
         //$this->logger->pushHandler(new StreamHandler('/var/log/image-pruner.log', Logger::DEBUG));
         $stdout = new StreamHandler('php://stdout', Logger::DEBUG);
         $stdout->setFormatter(new ColoredLineFormatter(null, "%level_name%: %message% \n"));
